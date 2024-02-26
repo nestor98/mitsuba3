@@ -43,9 +43,6 @@ function of the cosine of the scattering angle.
    * Phase function values are automatically normalized.
 */
 
-
-// TODO: Finish the 
-
 template <typename Float, typename Spectrum>
 class IrregularTabulatedPhaseFunction final : public PhaseFunction<Float, Spectrum> {
 public:
@@ -115,29 +112,6 @@ public:
     void parameters_changed(const std::vector<std::string> &/*keys*/) override {
         m_distr.update();
     }
-
-    // ------- From irregular.cpp:
-    // UnpolarizedSpectrum eval(const SurfaceInteraction3f &si, Mask active) const override {
-    //     MI_MASKED_FUNCTION(ProfilerPhase::TextureEvaluate, active);
-
-    //     if constexpr (is_spectral_v<Spectrum>)
-    //         return m_distr.eval_pdf(si.cosines, active);
-    //     else {
-    //         DRJIT_MARK_USED(si);
-    //         NotImplementedError("eval");
-    //     }
-    // }
-
-    // Wavelength pdf_spectrum(const SurfaceInteraction3f &si, Mask active) const override {
-    //     MI_MASKED_FUNCTION(ProfilerPhase::TextureEvaluate, active);
-
-    //     if constexpr (is_spectral_v<Spectrum>)
-    //         return m_distr.eval_pdf_normalized(si.cosines, active);
-    //     else {
-    //         DRJIT_MARK_USED(si);
-    //         NotImplementedError("pdf");
-    //     }
-    // }
     
     std::tuple<Vector3f, Spectrum, Float> sample(const PhaseFunctionContext & /* ctx */,
                                                  const MediumInteraction3f &mi,
@@ -183,23 +157,6 @@ public:
         return { pdf, pdf };
     }
 
-
-    // Float mean() const override {
-    //     ScalarVector2f range = m_distr.range();
-    //     return m_distr.integral() / (range[1] - range[0]);
-    // }
-
-    // ScalarVector2f wavelength_range() const override {
-    //     return m_distr.range();
-    // }
-
-    // ScalarFloat spectral_resolution() const override {
-    //     return m_distr.interval_resolution();
-    // }
-
-    // ScalarFloat max() const override {
-    //     return m_distr.max();
-    // }
 
     std::string to_string() const override {
         std::ostringstream oss;

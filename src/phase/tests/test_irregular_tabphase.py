@@ -14,13 +14,15 @@ def test_create(variant_scalar_rgb):
     })
     assert p is not None
 
+# it would be nice to have the same interface as the irregular spectrum type, then we could instantiate it like this function
+# . However, this would require a bunch of changes
+# to xml.cpp and python/xml_v.cpp. For now, we just use a string to specify the values.
+# def test_create_lists(variant_scalar_rgb, x=np.linspace(-1,1,10), y=np.random.rand(10)):
+#     # make sure the "pythonic" init works
+#     p = mi.load_dict({"type" : "irregular_tabphase", "values" : list(zip(x, y))})
+#     # p = mi.load_dict({"type" : "irregular_tabphase", "values" : list(zip(np.linspace(-1,1,10), np.random.rand(10)))})
 
-def test_create_lists(variant_scalar_rgb, x=np.linspace(-1,1,10), y=np.random.rand(10)):
-    # make sure the "pythonic" init works
-    p = mi.load_dict({"type" : "irregular_tabphase", "values" : list(zip(x, y))})
-# p = mi.load_dict({"type" : "irregular_tabphase", "values" : list(zip(np.linspace(-1,1,10), np.random.rand(10)))})
-
-    assert p is not None
+#     assert p is not None
 
 
 def test_eval(variant_scalar_rgb):
@@ -65,7 +67,9 @@ def test_eval(variant_scalar_rgb):
     ref_eval = eval(wi, wos)
 
     # Evaluate Mitsuba implementation
-    tab = mi.load_dict({"type": "irregular_tabphase", "values": ", ".join([str(y) for y in ref_y])})
+    tab = mi.load_dict({"type": "irregular_tabphase", 
+                        "cosines": ", ".join([str(x) for x in ref_x]),
+                        "values": ", ".join([str(y) for y in ref_y])})
     ctx = mi.PhaseFunctionContext(None)
     mei = mi.MediumInteraction3f()
     mei.wi = wi
@@ -83,7 +87,7 @@ def test_sample(variant_scalar_rgb):
     conventions.
     """
 
-    tab = mi.load_dict({"type": "tabphase", "values": "0.0, 0.5, 1.0"})
+    tab = mi.load_dict({"type": "irregular_tabphase", "cosines": "-1, 0, 1.0", "values": "0.0, 0.5, 1.0"})
     ctx = mi.PhaseFunctionContext(None)
     mei = mi.MediumInteraction3f()
     mei.t = 0.1
@@ -107,7 +111,7 @@ def test_sample(variant_scalar_rgb):
 
 def test_chi2(variants_vec_backends_once_rgb):
     sample_func, pdf_func = mi.chi2.PhaseFunctionAdapter(
-        "tabphase", "<string name='values' value='0.5, 1.0, 1.5'/>"
+        "irregular_tabphase", " <string name='cosines' value='-1, 0, 1.0'/> <string name='values' value='0.5, 1.0, 1.5'/> "
     )
 
     chi2 = mi.chi2.ChiSquareTest(
@@ -126,19 +130,20 @@ def test_traverse(variant_scalar_rgb):
     # Phase function table definition
     import numpy as np
 
-    ref_y = np.array([0.5, 1.0, 1.5])
+    ref_vals = [0.5, 0.75, 1.0, 1.25, 1.5]
+    ref_y = np.array(ref_vals)
     ref_x = np.linspace(-1, 1, len(ref_y))
     ref_integral = np.trapz(ref_y, ref_x)
 
     # Initialise as isotropic and update with parameters
-    phase = mi.load_dict({"type": "tabphase", "values": "1, 1, 1"})
+    phase = mi.load_dict({"type": "irregular_tabphase", "cosines" : "-1, -0.5, 0, 0.5, 1", "values": "1, 1, 1, 1, 1"})
     params = mi.traverse(phase)
-    params["values"] = [0.5, 1.0, 1.5]
+    params["values"] = ref_vals
     params.update()
 
     # Distribution parameters are updated
     params = mi.traverse(phase)
-    assert dr.allclose(params["values"], [0.5, 1.0, 1.5])
+    assert dr.allclose(params["values"], ref_vals)
 
     # The plugin itself evaluates consistently
     ctx = mi.PhaseFunctionContext(None)
