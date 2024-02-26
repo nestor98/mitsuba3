@@ -1,8 +1,7 @@
-
-#include <mitsuba/render/texture.h>
-#include <mitsuba/render/interaction.h>
-#include <mitsuba/core/properties.h>
 #include <mitsuba/core/distr_1d.h>
+#include <mitsuba/core/properties.h>
+#include <mitsuba/core/warp.h>
+#include <mitsuba/render/phase.h>
 
 NAMESPACE_BEGIN(mitsuba)
 
@@ -56,23 +55,23 @@ public:
 public:
     IrregularTabulatedPhaseFunction(const Properties &props) : Base(props) {
         if (props.type("values") == Properties::Type::String) {
-            std::vector<std::string> wavelengths_str =
-                string::tokenize(props.string("wavelengths"), " ,");
+            std::vector<std::string> cosines_str =
+                string::tokenize(props.string("cosines"), " ,");
             std::vector<std::string> entry_str, values_str =
                 string::tokenize(props.string("values"), " ,");
 
-            if (values_str.size() != wavelengths_str.size())
-                Throw("IrregularSpectrum: 'wavelengths' and 'values' parameters must have the same size!");
+            if (values_str.size() != cosines_str.size())
+                Throw("IrregularTabulatedPhaseFunction: 'cosines' and 'values' parameters must have the same size!");
 
-            std::vector<ScalarFloat> values, wavelengths;
+            std::vector<ScalarFloat> values, cosines;
             values.reserve(values_str.size());
-            wavelengths.reserve(values_str.size());
+            cosines.reserve(values_str.size());
 
             for (size_t i = 0; i < values_str.size(); ++i) {
                 try {
-                    wavelengths.push_back(string::stof<ScalarFloat>(wavelengths_str[i]));
+                    cosines.push_back(string::stof<ScalarFloat>(cosines_str[i]));
                 } catch (...) {
-                    Throw("Could not parse floating point value '%s'", wavelengths_str[i]);
+                    Throw("Could not parse floating point value '%s'", cosines_str[i]);
                 }
                 try {
                     values.push_back(string::stof<ScalarFloat>(values_str[i]));
@@ -81,27 +80,31 @@ public:
                 }
             }
 
-            m_distr = IrregularContinuousDistribution<Wavelength>(
-                wavelengths.data(), values.data(), values.size()
+            m_distr = IrregularContinuousDistribution<Float>(
+                cosines.data(), values.data(), values.size()
             );
         } else {
             // Scene/property parsing is in double precision, cast to single precision depending on variant.
             size_t size = props.get<size_t>("size");
-            const double *whl = static_cast<const double*>(props.pointer("wavelengths"));
+            const double *cs  = static_cast<const double*>(props.pointer("cosines"));
             const double *ptr = static_cast<const double*>(props.pointer("values"));
 
             if constexpr (std::is_same_v<ScalarFloat, double>) {
-                m_distr = IrregularContinuousDistribution<Wavelength>(whl, ptr, size);
+                m_distr = IrregularContinuousDistribution<Float>(cs, ptr, size);
             } else {
-                std::vector<ScalarFloat> values(size), wavelengths(size);
+                std::vector<ScalarFloat> values(size), cosines(size);
                 for (size_t i=0; i < size; ++i) {
                     values[i] = (ScalarFloat) ptr[i];
-                    wavelengths[i] = (ScalarFloat) whl[i];
+                    cosines[i] = (ScalarFloat) cs[i];
                 }
-                m_distr = IrregularContinuousDistribution<Wavelength>(
-                    wavelengths.data(), values.data(), size);
+                m_distr = IrregularContinuousDistribution<Float>(
+                    cosines.data(), values.data(), size);
             }
         }
+        
+        m_flags = +PhaseFunctionFlags::Anisotropic;
+        dr::set_attr(this, "flags", m_flags);
+        m_components.push_back(m_flags);
     }
 
     void traverse(TraversalCallback *callback) override {
@@ -113,28 +116,29 @@ public:
         m_distr.update();
     }
 
-    UnpolarizedSpectrum eval(const SurfaceInteraction3f &si, Mask active) const override {
-        MI_MASKED_FUNCTION(ProfilerPhase::TextureEvaluate, active);
+    // ------- From irregular.cpp:
+    // UnpolarizedSpectrum eval(const SurfaceInteraction3f &si, Mask active) const override {
+    //     MI_MASKED_FUNCTION(ProfilerPhase::TextureEvaluate, active);
 
-        if constexpr (is_spectral_v<Spectrum>)
-            return m_distr.eval_pdf(si.wavelengths, active);
-        else {
-            DRJIT_MARK_USED(si);
-            NotImplementedError("eval");
-        }
-    }
+    //     if constexpr (is_spectral_v<Spectrum>)
+    //         return m_distr.eval_pdf(si.cosines, active);
+    //     else {
+    //         DRJIT_MARK_USED(si);
+    //         NotImplementedError("eval");
+    //     }
+    // }
 
-    Wavelength pdf_spectrum(const SurfaceInteraction3f &si, Mask active) const override {
-        MI_MASKED_FUNCTION(ProfilerPhase::TextureEvaluate, active);
+    // Wavelength pdf_spectrum(const SurfaceInteraction3f &si, Mask active) const override {
+    //     MI_MASKED_FUNCTION(ProfilerPhase::TextureEvaluate, active);
 
-        if constexpr (is_spectral_v<Spectrum>)
-            return m_distr.eval_pdf_normalized(si.wavelengths, active);
-        else {
-            DRJIT_MARK_USED(si);
-            NotImplementedError("pdf");
-        }
-    }
-
+    //     if constexpr (is_spectral_v<Spectrum>)
+    //         return m_distr.eval_pdf_normalized(si.cosines, active);
+    //     else {
+    //         DRJIT_MARK_USED(si);
+    //         NotImplementedError("pdf");
+    //     }
+    // }
+    
     std::tuple<Vector3f, Spectrum, Float> sample(const PhaseFunctionContext & /* ctx */,
                                                  const MediumInteraction3f &mi,
                                                  Float /* sample1 */,
@@ -142,35 +146,64 @@ public:
                                                  Mask active) const override {
         MI_MASKED_FUNCTION(ProfilerPhase::PhaseFunctionSample, active);
 
-        // TODO: THIS must be very similar to tabphase, the following is just from irregular.cpp:
-        if constexpr (is_spectral_v<Spectrum>)
-            return { m_distr.sample(sample, active), m_distr.integral() };
-        else {
-            DRJIT_MARK_USED(sample);
-            NotImplementedError("sample");
-        }
+        // Sample a direction in physics convention.
+        // We sample cos θ' = cos(π - θ) = -cos θ.
+        Float cos_theta_prime = m_distr.sample(sample2.x());
+        Float sin_theta_prime =
+            dr::safe_sqrt(1.f - cos_theta_prime * cos_theta_prime);
+        auto [sin_phi, cos_phi] =
+            dr::sincos(2.f * dr::Pi<ScalarFloat> * sample2.y());
+        Vector3f wo{ sin_theta_prime * cos_phi, sin_theta_prime * sin_phi,
+                     cos_theta_prime };
+
+        // Switch the sampled direction to graphics convention and transform the
+        // computed direction to world coordinates
+        wo = -mi.to_world(wo);
+
+        // Retrieve the PDF value from the physics convention-sampled angle
+        Float pdf = m_distr.eval_pdf_normalized(cos_theta_prime, active) *
+                    dr::InvTwoPi<ScalarFloat>;
+
+        return { wo, 1.f, pdf };
     }
 
-    Float mean() const override {
-        ScalarVector2f range = m_distr.range();
-        return m_distr.integral() / (range[1] - range[0]);
+
+    std::pair<Spectrum, Float> eval_pdf(const PhaseFunctionContext & /* ctx */,
+                                        const MediumInteraction3f &mi,
+                                        const Vector3f &wo,
+                                        Mask active) const override {
+        MI_MASKED_FUNCTION(ProfilerPhase::PhaseFunctionEvaluate, active);
+
+        // The data is laid out in physics convention
+        // (with cos θ = 1 corresponding to forward scattering).
+        // This parameterization differs from the convention used internally by
+        // Mitsuba and is the reason for the minus sign below.
+        Float cos_theta = -dot(wo, mi.wi);
+        Float pdf = m_distr.eval_pdf_normalized(cos_theta, active) * dr::InvTwoPi<ScalarFloat>;
+        return { pdf, pdf };
     }
 
-    ScalarVector2f wavelength_range() const override {
-        return m_distr.range();
-    }
 
-    ScalarFloat spectral_resolution() const override {
-        return m_distr.interval_resolution();
-    }
+    // Float mean() const override {
+    //     ScalarVector2f range = m_distr.range();
+    //     return m_distr.integral() / (range[1] - range[0]);
+    // }
 
-    ScalarFloat max() const override {
-        return m_distr.max();
-    }
+    // ScalarVector2f wavelength_range() const override {
+    //     return m_distr.range();
+    // }
+
+    // ScalarFloat spectral_resolution() const override {
+    //     return m_distr.interval_resolution();
+    // }
+
+    // ScalarFloat max() const override {
+    //     return m_distr.max();
+    // }
 
     std::string to_string() const override {
         std::ostringstream oss;
-        oss << "IrregularSpectrum[" << std::endl
+        oss << "IrregularTabulatedPhaseFunction[" << std::endl
             << "  distr = " << string::indent(m_distr) << std::endl
             << "]";
         return oss.str();
@@ -178,9 +211,9 @@ public:
 
     MI_DECLARE_CLASS()
 private:
-    IrregularContinuousDistribution<Wavelength> m_distr;
+    IrregularContinuousDistribution<Float> m_distr;
 };
 
-MI_IMPLEMENT_CLASS_VARIANT(IrregularSpectrum, Texture)
-MI_EXPORT_PLUGIN(IrregularSpectrum, "Irregular interpolated tabulated phase function")
+MI_IMPLEMENT_CLASS_VARIANT(IrregularTabulatedPhaseFunction, PhaseFunction)
+MI_EXPORT_PLUGIN(IrregularTabulatedPhaseFunction, "Irregular interpolated tabulated phase function")
 NAMESPACE_END(mitsuba)
