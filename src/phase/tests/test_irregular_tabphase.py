@@ -1,10 +1,11 @@
 import pytest
 import drjit as dr
 import mitsuba as mi
-import numpy as np
+# import numpy as np
 
 from itertools import product
 
+# Tests for the irregular_tabphase plugin, heavily based on the tabphase tests
 
 def test_create(variant_scalar_rgb):
     p = mi.load_dict({
@@ -15,13 +16,11 @@ def test_create(variant_scalar_rgb):
     assert p is not None
 
 # it would be nice to have the same interface as the irregular spectrum type, then we could instantiate it like this function
-# . However, this would require a bunch of changes
-# to xml.cpp and python/xml_v.cpp. For now, we just use a string to specify the values.
+# However, this would require a bunch of changes
+# to xml.cpp and python/xml_v.cpp. For now, we just use a string to specify the cosines and values (same as tabphase).
 # def test_create_lists(variant_scalar_rgb, x=np.linspace(-1,1,10), y=np.random.rand(10)):
 #     # make sure the "pythonic" init works
 #     p = mi.load_dict({"type" : "irregular_tabphase", "values" : list(zip(x, y))})
-#     # p = mi.load_dict({"type" : "irregular_tabphase", "values" : list(zip(np.linspace(-1,1,10), np.random.rand(10)))})
-
 #     assert p is not None
 
 
@@ -93,7 +92,7 @@ def test_sample(variant_scalar_rgb):
     mei.t = 0.1
     mei.p = [0, 0, 0]
     mei.sh_frame = mi.Frame3f([0, 0, 1])
-    mei.wi = [0, 0, 1]
+    mei.wi = [0, 0, -1]
 
     # The passed sample corresponds to forward scattering
     wo, w, pdf = tab.sample(ctx, mei, 0, (1, 0))
@@ -124,6 +123,38 @@ def test_chi2(variants_vec_backends_once_rgb):
     result = chi2.run()
     # chi2._dump_tables()
     assert result
+
+def mimic_phase(ref_dict = {"type" : "hg", "g" : 0.82}):
+    import numpy as np
+    cosines = np.linspace(-1, 1, 100)
+    ref_phase = mi.load_dict(ref_dict)
+
+    ctx = mi.PhaseFunctionContext(None)
+    mei = mi.MediumInteraction3f()
+    mei.t = 0.1
+    mei.p = [0, 0, 0]
+    mei.sh_frame = mi.Frame3f([0, 0, 1])
+    mei.wi = [0, 0, -1]
+
+    values =np.empty(len(cosines))
+
+    for i, x in enumerate(cosines):
+        values[i] = ref_phase.eval_pdf(ctx, mei, [0, 0, x])[1]
+
+    # TODO: Why does this test fail? Also, doublecheck the division by / 4.0 * dr.inv_pi here:  / 4.0 * dr.inv_pi
+    tabulated = mi.load_dict({"type": "irregular_tabphase", "cosines" : ", ".join([str(x) for x in cosines]), "values" : ", ".join([str(x) for x in values])})
+
+    pdfs= np.empty(len(cosines))
+    for i, x in enumerate(cosines):
+        # eval, pdf = tabulated.eval_pdf(ctx, mei, [0, 0, x])
+        pdfs[i] = tabulated.eval_pdf(ctx, mei, [0, 0, x])[1]
+
+    return cosines, values, pdfs
+
+def test_mimic_phase(variant_scalar_rgb):
+    cosines, values, pdfs = mimic_phase()
+    print(cosines, values - pdfs, sep = "\n")
+    assert dr.allclose(values, pdfs)
 
 
 def test_traverse(variant_scalar_rgb):
