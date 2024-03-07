@@ -52,8 +52,6 @@ Mesh<Float, Spectrum>::Mesh(const std::string &name, ScalarSize vertex_count,
         m_vertex_normals = dr::zeros<FloatStorage>(m_vertex_count * 3);
     if (has_vertex_texcoords)
         m_vertex_texcoords = dr::zeros<FloatStorage>(m_vertex_count * 2);
-
-    initialize();
 }
 
 MI_VARIANT
@@ -89,8 +87,6 @@ MI_VARIANT void Mesh<Float, Spectrum>::traverse(TraversalCallback *callback) {
     // We arbitrarily chose to show all attributes as being differentiable here.
     for (auto &[name, attribute]: m_mesh_attributes)
         callback->put_parameter(name, attribute.buf, +ParamFlags::Differentiable);
-
-
 }
 
 MI_VARIANT void Mesh<Float, Spectrum>::parameters_changed(const std::vector<std::string> &keys) {
@@ -157,6 +153,9 @@ MI_VARIANT void Mesh<Float, Spectrum>::parameters_changed(const std::vector<std:
         m_faces_ptr = m_faces.data();
 #endif
         mark_dirty();
+
+        if (!m_initialized)
+            Base::initialize();
     }
 
     Base::parameters_changed();
@@ -1851,13 +1850,7 @@ MI_VARIANT void Mesh<Float, Spectrum>::optix_build_input(OptixBuildInput &build_
 #endif
 
 MI_VARIANT bool Mesh<Float, Spectrum>::parameters_grad_enabled() const {
-    bool result = false;
-    for (auto &[name, attribute]: m_mesh_attributes)
-        result |= dr::grad_enabled(attribute.buf);
-    result |= dr::grad_enabled(m_vertex_positions);
-    result |= dr::grad_enabled(m_vertex_normals);
-    result |= dr::grad_enabled(m_vertex_texcoords);
-    return result;
+    return dr::grad_enabled(m_vertex_positions);
 }
 
 MI_IMPLEMENT_CLASS_VARIANT(Mesh, Shape)
