@@ -524,12 +524,29 @@ private:
         UInt32 index_1_to_n = dr::arange<UInt32>(1, size + 1);
 
         // cdf[i] = interval_size * (sum(pmf[:i+1]) - 0.5 * (pmf[0] + pmf[i+1]))
-        m_cdf =
-            m_interval_size *
-            (dr::gather<Float>(dr::prefix_sum(m_pdf, false), index_1_to_n) -
-             0.5 * dr::gather<Float>(m_pdf, UInt32(0)) -
-             0.5 * dr::gather<Float>(m_pdf, index_1_to_n));
-
+        
+        if (!dr::is_diff_v<Float>) {
+            // Previous code, dr::prefix_sum throws error if the type is diff
+            m_cdf =
+                m_interval_size *
+                (dr::gather<Float>(dr::prefix_sum(m_pdf, false), index_1_to_n) -
+                0.5 * dr::gather<Float>(m_pdf, UInt32(0)) -
+                0.5 * dr::gather<Float>(m_pdf, index_1_to_n));
+        }
+        else {
+            Float sum = 0.f;
+            for (uint32_t i = 0; i < size+1; ++i) { // [0, n-1]
+                UInt32 idx = i;
+                Float pdf = dr::gather<Float>(m_pdf, idx);
+                sum += pdf;
+                dr::scatter(m_cdf, sum, idx);
+            }
+            m_cdf =
+                m_interval_size * 
+                (dr::gather<Float>(m_cdf, index_1_to_n) -
+                0.5 * dr::gather<Float>(m_pdf, UInt32(0)) -
+                0.5 * dr::gather<Float>(m_pdf, index_1_to_n));
+        }
         m_valid = Vector2u(0, size - 1);
         m_integral = dr::gather<Float>(m_cdf, m_valid.y());
         m_normalization = dr::rcp(m_integral);
