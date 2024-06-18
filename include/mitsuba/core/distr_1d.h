@@ -532,6 +532,8 @@ private:
                 (dr::gather<Float>(dr::prefix_sum(m_pdf, false), index_1_to_n) -
                 0.5 * dr::gather<Float>(m_pdf, UInt32(0)) -
                 0.5 * dr::gather<Float>(m_pdf, index_1_to_n));
+
+            // TODO: here, add a copy of the code below to make sure the new one gives the same results
         }
         else {
             Float sum = 0.f;
