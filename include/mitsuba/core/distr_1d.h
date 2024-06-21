@@ -533,6 +533,27 @@ private:
                 0.5 * dr::gather<Float>(m_pdf, UInt32(0)) -
                 0.5 * dr::gather<Float>(m_pdf, index_1_to_n));
 
+            
+            std::cout << "CDF:\n";
+            std::cout << dr::gather<Float>(m_cdf, dr::arange<UInt32>(0, size + 1)) << std::endl;
+
+            // -------------------------------------------
+            Float sum = 0.f;
+            for (uint32_t i = 0; i < size+1; ++i) { // [0, n-1]
+                UInt32 idx = i;
+                Float pdf = dr::gather<Float>(m_pdf, idx);
+                sum += pdf;
+                dr::scatter(m_cdf, sum, idx);
+            }
+            m_cdf =
+                m_interval_size * 
+                (dr::gather<Float>(m_cdf, index_1_to_n) -
+                0.5 * dr::gather<Float>(m_pdf, UInt32(0)) -
+                0.5 * dr::gather<Float>(m_pdf, index_1_to_n));
+
+            std::cout << "New version:\n";
+            std::cout << dr::gather<Float>(m_cdf, dr::arange<UInt32>(0, size + 1)) << std::endl;
+            // -------------------------------------------
             // TODO: here, add a copy of the code below to make sure the new one gives the same results
         }
         else {
