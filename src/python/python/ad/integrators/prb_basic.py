@@ -23,7 +23,7 @@ class BasicPRBIntegrator(RBIntegrator):
 
     Basic Path Replay Backpropagation-style integrator *without* next event
     estimation, multiple importance sampling, Russian Roulette, and
-    reparameterization. The lack of all of these features means that gradients
+    projective sampling. The lack of all of these features means that gradients
     are noisy and don't correctly account for visibility discontinuities. The
     lack of a Russian Roulette stopping criterion means that generated light
     paths may be unnecessarily long and costly to generate.
@@ -169,3 +169,5 @@ class BasicPRBIntegrator(RBIntegrator):
         )
 
 mi.register_integrator("prb_basic", lambda props: BasicPRBIntegrator(props))
+
+del RBIntegrator

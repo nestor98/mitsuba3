@@ -100,7 +100,6 @@ public:
                 Throw("The parameter 'texture' must be spatially varying (e.g. bitmap type)!");
             m_flags |= +EmitterFlags::SpatiallyVarying;
         }
-        dr::set_attr(this, "flags", m_flags);
 
         ScalarFloat cutoff_angle = props.get<ScalarFloat>("cutoff_angle", 20.0f);
         m_beam_width   = props.get<ScalarFloat>("beam_width", cutoff_angle * 3.0f / 4.0f);
@@ -208,7 +207,7 @@ public:
             radiance *= m_texture->eval(si, active);
         }
 
-        return { ds, depolarizer<Spectrum>(radiance & active) * (falloff * dr::sqr(inv_dist)) };
+        return { ds, depolarizer<Spectrum>(radiance & active) * (falloff * dr::square(inv_dist)) };
     }
 
     Float pdf_direction(const Interaction3f &,

@@ -1,7 +1,11 @@
+#include <nanobind/nanobind.h> // Needs to be first, to get `ref<T>` caster
 #include <mitsuba/core/thread.h>
 #include <mitsuba/core/logger.h>
 #include <mitsuba/core/fresolver.h>
 #include <mitsuba/python/python.h>
+
+#include <nanobind/trampoline.h>
+#include <nanobind/stl/string.h>
 
 NAMESPACE_BEGIN(mitsuba)
 
@@ -11,18 +15,19 @@ NAMESPACE_BEGIN(mitsuba)
  */
 class PyThread : public Thread {
 public:
-    using Thread::Thread;
+    NB_TRAMPOLINE(Thread, 2);
+
     virtual ~PyThread() = default;
 
     std::string to_string() const override {
-        py::gil_scoped_acquire acquire;
-        PYBIND11_OVERRIDE(std::string, Thread, to_string);
+        nb::gil_scoped_acquire acquire;
+        NB_OVERRIDE(to_string);
     }
 
 protected:
     void run() override {
-        py::gil_scoped_acquire acquire;
-        PYBIND11_OVERRIDE_PURE(void, Thread, run);
+        nb::gil_scoped_acquire acquire;
+        NB_OVERRIDE_PURE(run);
     }
 };
 
@@ -39,7 +44,7 @@ public:
     }
 
 
-    void exit(py::handle, py::handle, py::handle) {
+    void exit(nb::handle, nb::handle, nb::handle) {
         if (!m_ste)
             return;
 
@@ -59,10 +64,21 @@ public:
 
 NAMESPACE_END(mitsuba)
 
-MI_PY_EXPORT(Thread) {
-    auto thr = py::class_<Thread, Object, ref<Thread>, PyThread>(m, "Thread", D(Thread));
+/// Dummy object that clears the thread local state upon deletion
+class ThreadCanary {
+public:
+    ThreadCanary() { }
 
-    py::enum_<Thread::EPriority>(thr, "EPriority", D(Thread, EPriority))
+    ~ThreadCanary() {
+        if (Thread::unregister_external_thread())
+            Thread::tls_shutdown();
+    }
+};
+
+MI_PY_EXPORT(Thread) {
+    auto thr = nb::class_<Thread, Object, PyThread>(m, "Thread", D(Thread));
+
+    nb::enum_<Thread::EPriority>(thr, "EPriority", D(Thread, EPriority))
         .value("EIdlePriority", Thread::EIdlePriority, D(Thread, EPriority, EIdlePriority))
         .value("ELowestPriority", Thread::ELowestPriority, D(Thread, EPriority, ELowestPriority))
         .value("ELowPriority", Thread::ELowPriority, D(Thread, EPriority, ELowPriority))
@@ -72,8 +88,9 @@ MI_PY_EXPORT(Thread) {
         .value("ERealtimePriority", Thread::ERealtimePriority, D(Thread, EPriority, ERealtimePriority))
         .export_values();
 
+    nb::class_<ThreadCanary>(m, "_ThreadCanary").def(nb::init<>());
 
-    thr.def(py::init<const std::string &>(), "name"_a)
+    thr.def(nb::init<const std::string &>(), "name"_a)
        .def("parent", (Thread * (Thread::*) ()) & Thread::parent,
            D(Thread, parent))
        .def("file_resolver",
@@ -87,11 +104,44 @@ MI_PY_EXPORT(Thread) {
        .def_method(Thread, is_critical)
        .def_method(Thread, set_name)
        .def_method(Thread, name)
-       .def_method(Thread, thread_id)
+       .def_static_method(Thread, thread_id)
        .def_method(Thread, logger)
        .def_method(Thread, set_logger)
        .def_method(Thread, set_file_resolver)
-       .def_static_method(Thread, thread)
+       .def_static("thread",
+        [&]() {
+            /* The thread local information stored by `self` only gets freed
+             * when the TLS destructor is called. This is problematic as Python
+             * does not wait for the TLS destrcutors to be finished before
+             * shutting down the interpreter - even if some of those
+             * destructors require the interpreter to be alive. Ultimately,
+             * this can lead to leaks or crashes.
+             *
+             * Below, we create a canary object that will clear the `self`
+             * variable whenever it is deleted and we attach it to the Python
+             * `thread.Thread` that called this method. Functionally, we're
+             * tying the lifetime of the `self` variable to the Python
+             * `thread.Thread` object and therefore forcing Python to wait on
+             * the TLS data to be cleared. The TLS destructors will still be
+             * called but they will no longer require access to the Python
+             * interpreter as `self` will be empty. */
+
+            nb::object threading = nb::module_::import_("threading");
+            nb::object current_thread = threading.attr("current_thread")();
+
+            // Only do this the first time
+            if (!nb::hasattr(current_thread, "mitsuba_tls")) {
+                nb::object tls = threading.attr("local")();
+                nb::object mitsuba = nb::module_::import_("mitsuba");
+                nb::object canary = mitsuba.attr("_ThreadCanary")();
+
+                // Attach canary to Python thread.
+                tls.attr("mitsuba_canary") = canary;
+                current_thread.attr("mitsuba_tls") = tls;
+            }
+
+            return Thread::thread();
+        }, D(Thread, thread))
        .def_static_method(Thread, register_external_thread)
        .def_method(Thread, start)
        .def_method(Thread, is_running)
@@ -100,13 +150,14 @@ MI_PY_EXPORT(Thread) {
        .def_static_method(Thread, sleep)
        .def_static_method(Thread, wait_for_tasks);
 
-    py::class_<ThreadEnvironment>(m, "ThreadEnvironment", D(ThreadEnvironment))
-        .def(py::init<>());
+    nb::class_<ThreadEnvironment>(m, "ThreadEnvironment", D(ThreadEnvironment))
+        .def(nb::init<>());
 
-    py::class_<PyScopedSetThreadEnvironment>(m, "ScopedSetThreadEnvironment",
+    nb::class_<PyScopedSetThreadEnvironment>(m, "ScopedSetThreadEnvironment",
                                             D(ScopedSetThreadEnvironment))
-        .def(py::init<const ThreadEnvironment &>())
+        .def(nb::init<const ThreadEnvironment &>())
         .def("__enter__", &PyScopedSetThreadEnvironment::enter)
-        .def("__exit__", &PyScopedSetThreadEnvironment::exit);
+        .def("__exit__", &PyScopedSetThreadEnvironment::exit,
+             "exc_type"_a.none(), "exc_val"_a.none(), "exc_tb"_a.none());
 }
 

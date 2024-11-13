@@ -8,8 +8,15 @@ NAMESPACE_BEGIN(mitsuba)
 MI_VARIANT Emitter<Float, Spectrum>::Emitter(const Properties &props)
     : Base(props) {
         m_sampling_weight = props.get<ScalarFloat>("sampling_weight", 1.0f);
+
+        if constexpr (dr::is_jit_v<Float>)
+            jit_registry_put(dr::backend_v<Float>, "mitsuba::Emitter", this);
     }
-MI_VARIANT Emitter<Float, Spectrum>::~Emitter() { }
+
+MI_VARIANT Emitter<Float, Spectrum>::~Emitter() { 
+    if constexpr (dr::is_jit_v<Float>)
+        jit_registry_remove(this);
+}
 
 MI_VARIANT
 void Emitter<Float, Spectrum>::traverse(TraversalCallback *callback) {

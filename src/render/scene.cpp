@@ -169,11 +169,6 @@ MI_VARIANT Scene<Float, Spectrum>::~Scene() {
     m_children.clear();
     m_integrator = nullptr;
     m_environment = nullptr;
-
-    if constexpr (dr::is_jit_v<Float>) {
-        // Clean up JIT pointer registry now that the above has happened
-        jit_registry_trim();
-    }
 }
 
 // -----------------------------------------------------------------------
@@ -273,7 +268,7 @@ Scene<Float, Spectrum>::sample_emitter_ray(Float time, Float sample1,
     // Potentially disable inlining of emitter sampling (if there is just a single emitter)
     bool vcall_inline = true;
     if constexpr (dr::is_jit_v<Float>)
-         vcall_inline = jit_flag(JitFlag::VCallInline);
+         vcall_inline = false;
 
     size_t emitter_count = m_emitters.size();
     if (emitter_count > 1 || (emitter_count == 1 && !vcall_inline)) {
@@ -308,7 +303,7 @@ Scene<Float, Spectrum>::sample_emitter_direction(const Interaction3f &ref, const
     // Potentially disable inlining of emitter sampling (if there is just a single emitter)
     bool vcall_inline = true;
     if constexpr (dr::is_jit_v<Float>)
-         vcall_inline = jit_flag(JitFlag::VCallInline);
+         vcall_inline = false;
 
     size_t emitter_count = m_emitters.size();
     if (emitter_count > 1 || (emitter_count == 1 && !vcall_inline)) {
@@ -324,7 +319,7 @@ Scene<Float, Spectrum>::sample_emitter_direction(const Interaction3f &ref, const
         ds.pdf *= pdf_emitter(index, active);
         spec *= emitter_weight;
 
-        active &= dr::neq(ds.pdf, 0.f);
+        active &= (ds.pdf != 0.f);
 
         // Mark occluded samples as invalid if requested by the user
         if (test_visibility && dr::any_or<true>(active)) {
@@ -336,7 +331,7 @@ Scene<Float, Spectrum>::sample_emitter_direction(const Interaction3f &ref, const
         // Sample a direction towards the (single) emitter
         std::tie(ds, spec) = m_emitters[0]->sample_direction(ref, sample, active);
 
-        active &= dr::neq(ds.pdf, 0.f);
+        active &= (ds.pdf != 0.f);
 
         // Mark occluded samples as invalid if requested by the user
         if (test_visibility && dr::any_or<true>(active)) {
@@ -445,10 +440,9 @@ Scene<Float, Spectrum>::invert_silhouette_sample(const SilhouetteSample3f &ss,
 
     // Inverse mapping of samples on shapes that have both types
     Mask both_types_sampled =
-        dr::eq(ss.flags, (uint32_t) DiscontinuityFlags::AllTypes);
+        ss.flags == (uint32_t) DiscontinuityFlags::AllTypes;
     Mask shape_has_both_types =
-        dr::eq(ss.shape->silhouette_discontinuity_types(),
-               (uint32_t) DiscontinuityFlags::AllTypes);
+        ss.shape->silhouette_discontinuity_types() == (uint32_t) DiscontinuityFlags::AllTypes;
     Mask is_interior =
         has_flag(ss.discontinuity_type, DiscontinuityFlags::InteriorType);
     dr::masked(sample.x(), both_types_sampled && shape_has_both_types) =

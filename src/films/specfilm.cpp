@@ -276,7 +276,7 @@ public:
 
     ref<ImageBlock> create_block(const ScalarVector2u &size, bool normalize,
                                  bool border) override {
-        bool default_config = size == ScalarVector2u(0);
+        bool default_config = dr::all(size == ScalarVector2u(0));
 
         return new ImageBlock(default_config ? m_crop_size : size,
                               default_config ? m_crop_offset : ScalarPoint2u(0),
@@ -298,7 +298,7 @@ public:
 
         // The SRF is not necessarily normalized, cancel out multiplicative factors
         UnpolarizedSpectrum inv_spec = m_srf->eval(si);
-        inv_spec = dr::select(dr::neq(inv_spec, 0.f), dr::rcp(inv_spec), 1.f);
+        inv_spec = dr::select(inv_spec != 0.f, dr::rcp(inv_spec), 1.f);
         UnpolarizedSpectrum values = spec * inv_spec;
 
         for (size_t j = 0; j < m_srfs.size(); ++j) {
@@ -365,7 +365,7 @@ public:
                   values = dr::gather<Float>(data, values_idx);
 
             // Perform the weight division unless the weight is zero
-            values /= dr::select(dr::eq(weight, 0.f), 1.f, weight);
+            values /= dr::select(weight == 0.f, 1.f, weight);
 
             size_t shape[3] = { (size_t) size.y(), (size_t) size.x(),
                                 target_ch };

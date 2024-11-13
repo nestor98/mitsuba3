@@ -38,6 +38,9 @@ public:
      */
     Thread(const std::string &name);
 
+    /// Destructor
+    ~Thread();
+
     /**
      * \brief Set the thread priority
      *
@@ -124,16 +127,22 @@ public:
     void join();
 
     /// Return a string representation
-    virtual std::string to_string() const override;
+    std::string to_string() const override;
 
     /// Return the current thread
     static Thread *thread();
+
+    /// Return whether the current thread data structure has been initialized.
+    static bool has_initialized_thread();
 
     /// Sleep for a certain amount of time (in milliseconds)
     static void sleep(uint32_t ms);
 
     /// Initialize the threading system
     static void static_initialization();
+
+    /// Shut down any thread local state
+    static void tls_shutdown();
 
     /// Shut down the threading system
     static void static_shutdown();
@@ -161,9 +170,6 @@ public:
 
     MI_DECLARE_CLASS()
 protected:
-    /// Protected destructor
-    virtual ~Thread();
-
     /// Initialize thread execution environment and then call \ref run()
     void dispatch();
 
