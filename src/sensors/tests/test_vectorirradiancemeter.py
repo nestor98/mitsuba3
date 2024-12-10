@@ -196,12 +196,46 @@ def test_incoming_flux_integrator(variant_scalar_rgb, radiance):
 def get_envmap(radiance):
     import numpy as np
     theta = np.linspace(0, np.pi, 11)
-    im = np.ones((100, 11)) * radiance * np.abs(np.cos(theta))
+    im = np.ones((11, 11)) * radiance * np.maximum(np.cos(theta), 0.0)
+    im = dr.maximum(0.0, mi.TensorXf(im.T))
+
+    bmp = mi.Bitmap(im)
+    
+    bmp.write("cos-envmap-full.exr")
 
     return {
         "type": "envmap",
         "bitmap": mi.Bitmap(im)
     }
+
+
+# @pytest.mark.parametrize("radiance", [2.04, 1.0, 100.0])
+# def test_my_envmap(radiance):
+
+#     scene_dict = {
+#         'type': 'scene',
+#         'sensor': {"type": "perspective", "fov":90, 
+#                     "to_world": mi.ScalarTransform4f().look_at(target=[0,1,0], origin=[0,0,0], up=[0,1,0]),
+#                     "film": {
+#                         "type": "hdrfilm",
+#                         "width": 32,
+#                         "height": 32,
+#                         "rfilter": {"type": "box"}
+#                     }},
+#         'emitter': get_envmap(radiance),
+#         'integrator': {'type': 'path'}
+#     }
+#     scene = mi.load_dict(scene_dict)
+#     img = mi.render(scene, seed=0, spp=100)
+#     # scene.integrator().render(scene, seed=0)
+#     # film = scene.sensors()[0].film()
+
+#     # img = film.bitmap()
+#                 # .convert(mi.Bitmap.PixelFormat.Y,
+#                 #                         mi.Struct.Type.Float32, srgb_gamma=False)
+
+#     img.write("cos-envmap.exr")
+
 
 @pytest.mark.parametrize(
     ("radiance", "angle"),
@@ -221,7 +255,7 @@ def test_cosine_weight(variants_any_llvm, radiance, angle):
 
     scene_dict = {
         'type': 'scene',
-        'sensor': make_sensor(origin=[0,0,0], direction=[0,0,1]),
+        'sensor': make_sensor(origin=[0,0,0], direction=[0,1,0]),
         'emitter': get_envmap(radiance),
         'integrator': {'type': 'path'}
     }
@@ -266,13 +300,10 @@ def test_cosine_weight_v2(variants_any_llvm, radiance, angle):
     We expect the average value to be \\pi/4 * L (pi/4 is the integral of cos^2 for the hemisphere),
     with L being the base radiance <radiance>
     """
-    img = dr.zeros(mi.TensorXf, [100, 10, 1])
-    img[40, 5] = 1
-    bmp = mi.Bitmap(img)
 
     scene_dict = {
         'type': 'scene',
-        'sensor': make_sensor(origin=[0,0,0], direction=[0,0,1]),
+        'sensor': make_sensor(origin=[0,0,0], direction=[0,1,0]),
         'emitter': get_envmap(radiance),
         'integrator': {'type': 'path'}
     }
@@ -303,3 +334,70 @@ def test_cosine_weight_v2(variants_any_llvm, radiance, angle):
 
     assert np.allclose(img_1, img_2), "Measured: " + str(img_1) + " Ref (rad): " + str(img_2 )
 
+
+
+def sensor_disk_dict(origin=[0,0,0], target=[0,1,0], radius=1):
+    return {
+        'type': 'disk',
+        'to_world': mi.ScalarTransform4f().look_at(origin, target, [0, 0, 1]).scale(radius),
+        'sensor': {
+            'type': 'irradiancemeter',
+            'film': {
+                'type': 'hdrfilm',
+                'width': 1,
+                'height': 1,
+                'rfilter': {'type': 'box'}
+            },
+        }
+    }
+
+
+@pytest.mark.parametrize(
+    ("radiance", "angle"),
+    [(2.04, 90), (1.0, 0.0), (1000.0, 30.0)]
+)
+def test_vs_disk(variants_any_llvm, radiance, angle):
+    """
+    We test the recorded power density of the vector irradiance meter, by creating a simple scene:
+    The irradiance meter is at the coordinate origin looking towards the given direction,
+    surrounded by an envmap with a cosine weighted radiance (L(theta)=cos(theta)).
+
+    We render the scene with the path tracer integrator and compare the recorded  power
+    density with our theoretical expectation.
+    We expect the average value to be \\pi/4 * L (pi/4 is the integral of cos^2 for the hemisphere),
+    with L being the base radiance <radiance>
+    """
+    d = [0,0,1]
+
+    scene_dict = {
+        'type': 'scene',
+        'sensor': make_sensor(origin=[0,0,0], direction=[0,1,0]),
+        'emitter': get_envmap(radiance),
+        'integrator': {'type': 'path'}
+    }
+
+    scene = mi.load_dict(scene_dict)
+    scene.integrator().render(scene, seed=0, spp=3200)
+    film = scene.sensors()[0].film()
+
+    img = film.bitmap(raw=True).convert(mi.Bitmap.PixelFormat.Y,
+                                        mi.Struct.Type.Float32, srgb_gamma=False)
+    img_1 = dr.copy(mi.TensorXf(img)).numpy()
+
+    scene_dict = {
+        'type': 'scene',
+        'sensor': sensor_disk_dict(origin=[0,0,0], target=d),
+        'emitter': get_envmap(radiance),
+        'integrator': {'type': 'path'}
+    }
+    scene = mi.load_dict(scene_dict)
+
+    scene.integrator().render(scene, seed=0, spp=3200)
+    film = scene.sensors()[0].film()
+
+    img = film.bitmap(raw=True).convert(mi.Bitmap.PixelFormat.Y,
+                                        mi.Struct.Type.Float32, srgb_gamma=False)
+
+    img_2 = mi.TensorXf(img).numpy()
+
+    assert np.allclose(img_1, img_2), "Measured: " + str(img_1) + " Ref (disk): " + str(img_2 )

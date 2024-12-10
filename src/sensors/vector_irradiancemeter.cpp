@@ -141,7 +141,7 @@ public:
 
         return { 
             ray, 
-            depolarizer<Spectrum>(wav_weight) * dr::Pi<ScalarFloat> 
+            depolarizer<Spectrum>(wav_weight) * dr::Pi<ScalarFloat>  // TODO: why PI, why no /pdf?
         };
         // Note: the depolarizer here means that this sensor is not polarization sensitive
         // this would need to be handled differently if polarization sensitivity is desired
