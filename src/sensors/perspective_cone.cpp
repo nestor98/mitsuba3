@@ -183,5 +183,5 @@ public:
 };
 
 MI_IMPLEMENT_CLASS_VARIANT(PerspectiveCone, Sensor)
-MI_EXPORT_PLUGIN(PerspectiveCone, "PerspectiveCone");
+MI_EXPORT_PLUGIN(PerspectiveCone, "perspectivecone");
 NAMESPACE_END(mitsuba)
