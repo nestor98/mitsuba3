@@ -217,6 +217,18 @@ struct SilhouetteSample : public PositionSample<Float_, Spectrum_> {
  * This class provides core functionality for sampling positions on surfaces,
  * computing ray intersections, and bounding shapes within ray intersection
  * acceleration data structures.
+ *
+ * Two types of attributes can be associated with a shape:
+ * 1. Texture attributes (\c Shape::add_texture_attribute), which must be
+ *    a \c Texture instance but can have arbitrary resolution. The UV
+ *    parametrization of the shape is used to look up texture attribute values.
+ * 2. Mesh attributes (\c Mesh::add_attribute), which can only be added
+ *    to mesh-type Shapes. They must be either per-vertex or per-face attributes,
+ *    their name must start with "vertex_" (resp. "face_"), and their size
+ *    must match the number of vertices (resp. faces) of the mesh.
+ *
+ * Once registered, attributes are queried with the \c Shape::eval_attribute*
+ * methods.
  */
 template <typename Float, typename Spectrum>
 class MI_EXPORT_LIB Shape : public Object {
@@ -680,6 +692,35 @@ public:
     virtual Float surface_area() const;
 
     /**
+     * \brief Add a texture attribute with the given \c name.
+     *
+     * If an attribute with the same name already exists, it is replaced.
+     *
+     * Note that \c Mesh shapes can additionally handle per-vertex
+     * and per-face attributes via the \c Mesh::add_attribute method.
+     *
+     * \param name
+     *     Name of the attribute
+     * \param texture
+     *     Texture to store. The dimensionality of the attribute
+     *     is simply the channel count of the texture.
+     */
+    virtual void add_texture_attribute(const std::string &name, Texture *texture);
+
+    /// Return the texture attribute associated with \c name.
+    Texture *texture_attribute(const std::string &name);
+
+    /// Return the texture attribute associated with \c name.
+    const Texture *texture_attribute(const std::string &name) const;
+
+    /**
+     * \brief Remove a texture texture with the given \c name.
+     *
+     * Throws an exception if the attribute was not registered.
+     */
+    virtual void remove_attribute(const std::string &name);
+
+    /**
      * \brief Returns whether this shape contains the specified attribute.
      *
      * \param name
@@ -799,6 +840,9 @@ public:
 
     /// Return the shape's BSDF
     BSDF *bsdf(Mask /*unused*/ = true) { return m_bsdf.get(); }
+
+    /// Set the shape's BSDF
+    virtual void set_bsdf(BSDF *bsdf);
 
     /// Is this shape also an area emitter?
     bool is_emitter() const { return (bool) m_emitter; }
@@ -921,7 +965,8 @@ public:
      * type of the Shape, see \ref get_shape_descr_idx()).
      */
     virtual void optix_fill_hitgroup_records(std::vector<HitGroupSbtRecord> &hitgroup_records,
-                                             const OptixProgramGroup *program_groups);
+                                             const OptixProgramGroup *program_groups,
+                                             const std::unordered_map<size_t, size_t> &program_index_mapping);
 #endif
 
     void traverse(TraversalCallback *callback) override;
@@ -1079,7 +1124,7 @@ NAMESPACE_END(mitsuba)
 //! @{ \name Dr.Jit support for vectorized function calls
 // -----------------------------------------------------------------------
 
-DRJIT_CALL_TEMPLATE_BEGIN(mitsuba::Shape)
+MI_CALL_TEMPLATE_BEGIN(Shape)
     DRJIT_CALL_METHOD(compute_surface_interaction)
     DRJIT_CALL_METHOD(has_attribute)
     DRJIT_CALL_METHOD(eval_attribute)
@@ -1112,7 +1157,7 @@ DRJIT_CALL_TEMPLATE_BEGIN(mitsuba::Shape)
     auto is_mesh() const { return shape_type() == (uint32_t) mitsuba::ShapeType::Mesh; }
     auto is_medium_transition() const { return interior_medium() != nullptr ||
                                                exterior_medium() != nullptr; }
-DRJIT_CALL_END(mitsuba::Shape)
+MI_CALL_TEMPLATE_END(Shape)
 
 //! @}
 // -----------------------------------------------------------------------

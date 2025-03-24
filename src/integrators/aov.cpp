@@ -355,7 +355,7 @@ public:
 
     TensorXf render(Scene *scene,
                     Sensor *sensor,
-                    uint32_t seed,
+                    UInt32 seed,
                     uint32_t spp,
                     bool develop,
                     bool evaluate) override {
@@ -386,7 +386,7 @@ public:
     TensorXf render_forward(Scene* scene,
                             void* params,
                             Sensor *sensor,
-                            uint32_t seed = 0,
+                            UInt32 seed = 0,
                             uint32_t spp = 0) override {
 
         // Perform forward mode propagation just for AOV image
@@ -401,9 +401,12 @@ public:
 
             // Perform an AD traversal of all registered AD variables that
             // influence 'aovs_image' in a differentiable manner
-            dr::forward_to(aovs_image.array());
-
-            aovs_grad = TensorXf(dr::grad(aovs_image.array()), 3, aovs_image.shape().data());
+            if (dr::grad_enabled(aovs_image.array())) {
+                dr::forward_to(aovs_image.array(), (uint32_t) dr::ADFlag::ClearInterior);
+                aovs_grad = TensorXf(dr::grad(aovs_image.array()), 3, aovs_image.shape().data());
+            } else {
+                aovs_grad = TensorXf(dr::zeros<Float>(aovs_image.array().size()), 3, aovs_image.shape().data());
+            }
         }
 
         // Let inner integrators handle forward differentiation for radiance
@@ -418,7 +421,7 @@ public:
                          void* params,
                          const TensorXf& grad_in,
                          Sensor* sensor,
-                         uint32_t seed = 0,
+                         UInt32 seed = 0,
                          uint32_t spp = 0) override {
         size_t base_ch_count = sensor->film()->base_channels_count();
         auto [image_grads, aovs_grad] = split_channels(base_ch_count, grad_in);
@@ -432,7 +435,7 @@ public:
             size_t num_aovs = m_aov_names.size() - m_integrator_aovs_count;
             aovs_image = get_channels_slice(aovs_image, aovs_image.shape(2) - num_aovs, num_aovs);
 
-            dr::backward_from((aovs_image * aovs_grad).array());
+            dr::backward_from((aovs_image * aovs_grad).array(), (uint32_t) dr::ADFlag::ClearInterior);
         }
 
         // Let inner integrators handle backwards differentiation for radiance

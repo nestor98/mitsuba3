@@ -76,7 +76,7 @@ install(TARGETS ${nanobind_lib_name}
 )
 
 nanobind_add_module(mitsuba_ext
-  NB_DOMAIN drjit
+  NB_DOMAIN ${MI_NB_DOMAIN}
   NB_SHARED
   ${MI_DIST_FLAGS}
   main.cpp
@@ -85,7 +85,7 @@ nanobind_add_module(mitsuba_ext
 )
 
 nanobind_add_module(mitsuba_alias
-  NB_DOMAIN drjit
+  NB_DOMAIN ${MI_NB_DOMAIN}
   NB_SHARED
   ${MI_DIST_FLAGS}
   alias.cpp
@@ -234,7 +234,7 @@ set(STUB_ARGS
 # enabled.
 if (NOT (MI_SANITIZE_ADDRESS OR MI_SANITIZE_MEMORY))
 
-  set(MI_STUB_SUBMODULES "math" "quad" "spline" "mueller" "warp" "misc"
+  set(MI_STUB_SUBMODULES "math" "quad" "spline" "mueller" "warp" "misc" "detail" "filesystem"
                          "python.ad" "python.chi2" "python.math_py" "python.util" "python.xml")
 
   nanobind_add_stub(

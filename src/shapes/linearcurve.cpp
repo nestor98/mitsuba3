@@ -105,7 +105,7 @@ points and increasing radii::
 
         'curves': {
             'type': 'linearcurve',
-            'to_world': mi.ScalarTransform4f.scale([2, 2, 2]).translate([1, 0, 0]),
+            'to_world': mi.ScalarTransform4f().scale([2, 2, 2]).translate([1, 0, 0]),
             'filename': 'curves.txt'
         },
 
@@ -428,7 +428,7 @@ public:
 
         build_input.curveArray.normalBuffers        = 0;
         build_input.curveArray.normalStrideInBytes  = 0;
-        build_input.curveArray.flag                 = OPTIX_GEOMETRY_FLAG_NONE;
+        build_input.curveArray.flag                 = OPTIX_GEOMETRY_FLAG_DISABLE_ANYHIT;
         build_input.curveArray.primitiveIndexOffset = 0;
         build_input.curveArray.endcapFlags          = OPTIX_CURVE_ENDCAP_DEFAULT;
     }
