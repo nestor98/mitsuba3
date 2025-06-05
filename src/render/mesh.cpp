@@ -18,7 +18,6 @@
 # if defined(MI_USE_OPTIX_HEADERS)
     #include <optix_function_table_definition.h>
 # endif
-    #include "../shapes/optix/mesh.cuh"
 #endif
 
 NAMESPACE_BEGIN(mitsuba)
@@ -156,7 +155,7 @@ MI_VARIANT void Mesh<Float, Spectrum>::parameters_changed(const std::vector<std:
             Base::initialize();
     }
 
-    Base::parameters_changed();
+    Base::parameters_changed(keys);
 }
 
 MI_VARIANT typename Mesh<Float, Spectrum>::ScalarBoundingBox3f
@@ -443,23 +442,13 @@ MI_VARIANT void Mesh<Float, Spectrum>::recompute_bbox() {
 
 MI_VARIANT void Mesh<Float, Spectrum>::build_pmf() {
     std::lock_guard<std::mutex> lock(m_mutex);
-    dr::scoped_symbolic_independence<Float> guard{};
 
     if (m_face_count == 0)
         Throw("Cannot create sampling table for an empty mesh: %s", to_string());
 
     if constexpr (!dr::is_jit_v<Float>) {
-        if (!m_area_pmf.empty())
-            return; // already built!
-
-        auto &&vertex_positions =
-            dr::migrate(m_vertex_positions, AllocType::Host);
-        auto &&faces = dr::migrate(m_faces, AllocType::Host);
-        if constexpr (dr::is_jit_v<Float>)
-            dr::sync_thread();
-
-        const InputFloat *pos_p  = vertex_positions.data();
-        const ScalarIndex *idx_p = faces.data();
+        const InputFloat *pos_p  = m_vertex_positions.data();
+        const ScalarIndex *idx_p = m_faces.data();
 
         std::vector<ScalarFloat> table(m_face_count);
         for (ScalarIndex i = 0; i < m_face_count; i++) {
@@ -474,8 +463,11 @@ MI_VARIANT void Mesh<Float, Spectrum>::build_pmf() {
 
         m_area_pmf = DiscreteDistribution<Float>(table.data(), m_face_count);
     } else {
+        dr::scoped_disable_symbolic<Float> guard{};
+
         Vector3u v_idx = face_indices(dr::arange<UInt32>(m_face_count));
-        Point3f p0 = vertex_position(v_idx[0]), p1 = vertex_position(v_idx[1]),
+        Point3f p0 = vertex_position(v_idx[0]),
+                p1 = vertex_position(v_idx[1]),
                 p2 = vertex_position(v_idx[2]);
 
         Float face_surface_area = .5f * dr::norm(dr::cross(p1 - p0, p2 - p0));
@@ -1558,6 +1550,7 @@ Mesh<Float, Spectrum>::compute_surface_interaction(const Ray3f &ray,
         si.sh_frame.n = -si.sh_frame.n;
     }
 
+    si.prim_index = pi.prim_index;
     si.shape    = this;
     si.instance = nullptr;
 
@@ -1873,6 +1866,7 @@ MI_VARIANT void Mesh<Float, Spectrum>::optix_prepare_geometry() { }
 
 MI_VARIANT void Mesh<Float, Spectrum>::optix_build_input(OptixBuildInput &build_input) const {
     m_vertex_buffer_ptr = (void*) m_vertex_positions.data(); // triggers dr::eval()
+
     build_input.type                           = OPTIX_BUILD_INPUT_TYPE_TRIANGLES;
     build_input.triangleArray.vertexFormat     = OPTIX_VERTEX_FORMAT_FLOAT3;
     build_input.triangleArray.indexFormat      = OPTIX_INDICES_FORMAT_UNSIGNED_INT3;

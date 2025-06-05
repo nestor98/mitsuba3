@@ -334,7 +334,7 @@ public:
 
         // It seems that the `v_local` given by Embree and OptiX has already
         // taken into account the changing radius: `v_local` is shifted such
-        // that the normal can be easily computed as `si.p - c`, 
+        // that the normal can be easily computed as `si.p - c`,
         // where `c = (1 - c_local) * cp1 + v_local * cp2`
         UInt32 idx = dr::gather<UInt32>(m_indices, prim_idx, active);
         Point4f c0 = dr::gather<Point4f>(m_control_points, idx, active),
@@ -344,7 +344,7 @@ public:
 
         Vector3f u_rot, u_rad;
         std::tie(u_rot, u_rad) = local_frame(dr::normalize(p1 - p0));
-        
+
         Point3f c = p0 * (1.f - v_local) + p1 * v_local;
         si.n = si.sh_frame.n = dr::normalize(si.p - c);
 
@@ -361,6 +361,7 @@ public:
             si.uv = Point2f(u, v);
         }
 
+        si.prim_index = pi.prim_index;
         si.shape    = this;
         si.instance = nullptr;
 
@@ -388,7 +389,6 @@ public:
 
 #if defined(MI_ENABLE_EMBREE)
     RTCGeometry embree_geometry(RTCDevice device) override {
-        dr::eval(m_control_points); // Make sure the buffer is evaluated
         RTCGeometry geom = rtcNewGeometry(device, RTC_GEOMETRY_TYPE_ROUND_LINEAR_CURVE);
 
         rtcSetSharedGeometryBuffer(geom, RTC_BUFFER_TYPE_VERTEX, 0, RTC_FORMAT_FLOAT4,
@@ -407,13 +407,11 @@ public:
     void optix_prepare_geometry() override { }
 
     void optix_build_input(OptixBuildInput &build_input) const override {
-        dr::eval(m_control_points); // Make sure the buffer is evaluated
         m_vertex_buffer_ptr = (CUdeviceptr*) m_control_points.data();
         m_radius_buffer_ptr = (CUdeviceptr*) (m_control_points.data() + 3);
-        m_index_buffer_ptr  = (CUdeviceptr*) m_indices.data();
 
-        build_input.type = OPTIX_BUILD_INPUT_TYPE_CURVES;
-        build_input.curveArray.curveType = OPTIX_PRIMITIVE_TYPE_ROUND_LINEAR;
+        build_input.type                            = OPTIX_BUILD_INPUT_TYPE_CURVES;
+        build_input.curveArray.curveType            = OPTIX_PRIMITIVE_TYPE_ROUND_LINEAR;
         build_input.curveArray.numPrimitives        = (unsigned int) dr::width(m_indices);
 
         build_input.curveArray.vertexBuffers        = (CUdeviceptr*) &m_vertex_buffer_ptr;
@@ -423,7 +421,7 @@ public:
         build_input.curveArray.widthBuffers         = (CUdeviceptr*) &m_radius_buffer_ptr;
         build_input.curveArray.widthStrideInBytes   = sizeof( InputFloat ) * 4;
 
-        build_input.curveArray.indexBuffer          = (CUdeviceptr) m_index_buffer_ptr;
+        build_input.curveArray.indexBuffer          = (CUdeviceptr) m_indices.data();
         build_input.curveArray.indexStrideInBytes   = sizeof( ScalarIndex );
 
         build_input.curveArray.normalBuffers        = 0;
@@ -515,11 +513,9 @@ private:
     // For OptiX build input
     mutable void* m_vertex_buffer_ptr = nullptr;
     mutable void* m_radius_buffer_ptr = nullptr;
-    mutable void* m_index_buffer_ptr = nullptr;
 #endif
 };
 
 MI_IMPLEMENT_CLASS_VARIANT(LinearCurve, Shape)
 MI_EXPORT_PLUGIN(LinearCurve, "Linear curve intersection primitive");
 NAMESPACE_END(mitsuba)
-

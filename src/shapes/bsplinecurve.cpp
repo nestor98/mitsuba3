@@ -718,15 +718,15 @@ public:
                  active_loop = Mask(success);
             UInt32 cnt = 0u;
 
-            std::tie(u_lower, u_upper, f_lower, f_upper, cnt, 
+            std::tie(u_lower, u_upper, f_lower, f_upper, cnt,
                 active_loop) = dr::while_loop(
-                std::make_tuple(u_lower, u_upper, f_lower, f_upper, cnt, 
+                std::make_tuple(u_lower, u_upper, f_lower, f_upper, cnt,
                 active_loop),
-            [](const Float&, const Float&, const Float&, const Float&, 
+            [](const Float&, const Float&, const Float&, const Float&,
                 const UInt32&, const Mask& active_loop) {
                 return active_loop;
             },
-            [normal_eq](Float& u_lower, Float& u_upper, Float& f_lower, 
+            [normal_eq](Float& u_lower, Float& u_upper, Float& f_lower,
                 Float& f_upper, UInt32& cnt, Mask& active_loop) {
 
                 Float u_middle = 0.5f * (u_lower + u_upper);
@@ -1003,6 +1003,7 @@ public:
             }
         }
 
+        si.prim_index = pi.prim_index;
         si.shape = this;
         si.instance = nullptr;
 
@@ -1014,7 +1015,6 @@ public:
 
 #if defined(MI_ENABLE_EMBREE)
     RTCGeometry embree_geometry(RTCDevice device) override {
-        dr::eval(m_control_points); // Make sure the buffer is evaluated
         RTCGeometry geom = rtcNewGeometry(device, RTC_GEOMETRY_TYPE_ROUND_BSPLINE_CURVE);
         rtcSetSharedGeometryBuffer(geom, RTC_BUFFER_TYPE_VERTEX, 0, RTC_FORMAT_FLOAT4,
                                    m_control_points.data(), 0, 4 * sizeof(InputFloat),
@@ -1031,10 +1031,8 @@ public:
     void optix_prepare_geometry() override { }
 
     void optix_build_input(OptixBuildInput &build_input) const override {
-        dr::eval(m_control_points); // Make sure the buffer is evaluated
         m_vertex_buffer_ptr = (CUdeviceptr*) m_control_points.data();
         m_radius_buffer_ptr = (CUdeviceptr*) (m_control_points.data() + 3);
-        m_index_buffer_ptr  = (CUdeviceptr*) m_indices.data();
 
         build_input.type                            = OPTIX_BUILD_INPUT_TYPE_CURVES;
         build_input.curveArray.curveType            = OPTIX_PRIMITIVE_TYPE_ROUND_CUBIC_BSPLINE;
@@ -1047,7 +1045,7 @@ public:
         build_input.curveArray.widthBuffers         = (CUdeviceptr*) &m_radius_buffer_ptr;
         build_input.curveArray.widthStrideInBytes   = sizeof( InputFloat ) * 4;
 
-        build_input.curveArray.indexBuffer          = (CUdeviceptr) m_index_buffer_ptr;
+        build_input.curveArray.indexBuffer          = (CUdeviceptr) m_indices.data();
         build_input.curveArray.indexStrideInBytes   = sizeof( ScalarIndex );
 
         build_input.curveArray.normalBuffers        = 0;
@@ -1301,7 +1299,6 @@ private:
     // For OptiX build input
     mutable CUdeviceptr* m_vertex_buffer_ptr = nullptr;
     mutable CUdeviceptr* m_radius_buffer_ptr = nullptr;
-    mutable CUdeviceptr* m_index_buffer_ptr = nullptr;
 #endif
 };
 

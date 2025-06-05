@@ -166,12 +166,25 @@ public:
             // modifying the scalar values of the fields in this class
             if constexpr (dr::is_jit_v<Float>)
                 dr::sync_thread();
-            // Update the scalar value of the matrix
-            m_to_world = m_to_world.value();
+
+            if constexpr (dr::is_diff_v<Float>) {
+                Transform4f to_world = m_to_world.value();
+                // Re-attach inverse_transpose to original matrix
+                if (dr::grad_enabled(to_world.matrix)) {
+                    Matrix4f invt_diff = dr::inverse_transpose(to_world.matrix);
+                    to_world.inverse_transpose =
+                        dr::replace_grad(to_world.inverse_transpose, invt_diff);
+                }
+                m_to_world = to_world;
+            } else {
+                // Update the scalar value of the matrix
+                m_to_world = m_to_world.value();
+            }
+
             update();
         }
 
-        Base::parameters_changed();
+        Base::parameters_changed(keys);
     }
 
     ScalarBoundingBox3f bbox() const override {
@@ -720,10 +733,7 @@ public:
                 local = to_object.transform_affine(si.p);
             }
         } else {
-            /* Mitigate roundoff error issues by a normal shift of the computed
-               intersection point */
             local = to_object.transform_affine(si.p);
-            si.p += si.n * (1.f - dr::norm(dr::head<2>(local)));
         }
 
         si.t = dr::select(active, si.t, dr::Infinity<Float>);
@@ -739,6 +749,12 @@ public:
         si.dp_dv = to_world.transform_affine(dp_dv);
         si.n = Normal3f(dr::normalize(dr::cross(si.dp_du, si.dp_dv)));
 
+        if constexpr (!IsDiff) {
+            /* Mitigate roundoff error issues by a normal shift of the computed
+               intersection point */
+            si.p += si.n * (1.f - dr::norm(dr::head<2>(local)));
+        }
+
         if (m_flip_normals)
             si.n = -si.n;
         si.sh_frame.n = si.n;
@@ -748,6 +764,7 @@ public:
             si.dn_dv = Vector3f(0.f);
         }
 
+        si.prim_index = pi.prim_index;
         si.shape    = this;
         si.instance = nullptr;
 
@@ -766,7 +783,8 @@ public:
                                        (float) 1.f,
                                        (float) 1.f };
 
-            jit_memcpy(JitBackend::CUDA, m_optix_data_ptr, &data, sizeof(OptixCylinderData));
+            jit_memcpy_async(JitBackend::CUDA, m_optix_data_ptr, &data,
+                             sizeof(OptixCylinderData));
         }
     }
 #endif

@@ -136,11 +136,24 @@ public:
             // modifying the scalar values of the fields in this class
             if constexpr (dr::is_jit_v<Float>)
                 dr::sync_thread();
-            // Update the scalar value of the matrix
-            m_to_world = m_to_world.value();
+
+            if constexpr (dr::is_diff_v<Float>) {
+                Transform4f to_world = m_to_world.value();
+                // Re-attach inverse_transpose to original matrix
+                if (dr::grad_enabled(to_world.matrix)) {
+                    Matrix4f invt_diff = dr::inverse_transpose(to_world.matrix);
+                    to_world.inverse_transpose =
+                        dr::replace_grad(to_world.inverse_transpose, invt_diff);
+                }
+                m_to_world = to_world;
+            } else {
+                // Update the scalar value of the matrix
+                m_to_world = m_to_world.value();
+            }
+
             update();
         }
-        Base::parameters_changed();
+        Base::parameters_changed(keys);
     }
 
 
@@ -511,6 +524,8 @@ public:
         si.sh_frame.n = m_frame.n;
 
         si.dn_du = si.dn_dv = dr::zeros<Vector3f>();
+
+        si.prim_index = pi.prim_index;
         si.shape    = this;
         si.instance = nullptr;
 
@@ -531,7 +546,8 @@ public:
 
             OptixDiskData data = { bbox(), m_to_object.scalar() };
 
-            jit_memcpy(JitBackend::CUDA, m_optix_data_ptr, &data, sizeof(OptixDiskData));
+            jit_memcpy_async(JitBackend::CUDA, m_optix_data_ptr, &data,
+                             sizeof(OptixDiskData));
         }
     }
 #endif

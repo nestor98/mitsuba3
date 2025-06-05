@@ -15,11 +15,11 @@
 #include <drjit/texture.h>
 
 #if defined(MI_ENABLE_EMBREE)
-#include <embree3/rtcore.h>
+#  include <embree3/rtcore.h>
 #endif
 
 #if defined(MI_ENABLE_CUDA)
-#include "optix/sdfgrid.cuh"
+#  include "optix/sdfgrid.cuh"
 #endif
 
 NAMESPACE_BEGIN(mitsuba)
@@ -164,8 +164,9 @@ public:
             if (tensor->shape(3) != 1)
                 Throw("SDF grid shape at index 3 is %lu, expected 1",
                       tensor->shape(3));
-            m_grid_texture = InputTexture3f(*tensor, true, true,
-                dr::FilterMode::Linear, dr::WrapMode::Clamp);
+            m_grid_texture = InputTexture3f(
+                (const typename InputTexture3f::TensorXf &) *tensor,
+                true, true, dr::FilterMode::Linear, dr::WrapMode::Clamp);
         } else {
             Throw("The SDF values must be specified with either the "
                   "\"filename\" or \"grid\" parameter!");
@@ -236,9 +237,21 @@ public:
             if constexpr (dr::is_jit_v<Float>)
                 dr::sync_thread();
 
-            // Update the scalar value of the matrix
-            m_to_world = m_to_world.value();
-            m_grid_texture.set_tensor(m_grid_texture.tensor());
+            if constexpr (dr::is_diff_v<Float>) {
+                Transform4f to_world = m_to_world.value();
+                // Re-attach inverse_transpose to original matrix
+                if (dr::grad_enabled(to_world.matrix)) {
+                    Matrix4f invt_diff = dr::inverse_transpose(to_world.matrix);
+                    to_world.inverse_transpose =
+                        dr::replace_grad(to_world.inverse_transpose, invt_diff);
+                }
+                m_to_world = to_world;
+            } else {
+                // Update the scalar value of the matrix
+                m_to_world = m_to_world.value();
+            }
+
+            m_grid_texture.update_inplace();
 
             update();
         }
@@ -449,6 +462,7 @@ public:
         si.dp_dv = Vector3f(0.f);
         si.dn_du = si.dn_dv = dr::zeros<Vector3f>();
 
+        si.prim_index = pi.prim_index;
         si.shape    = this;
         si.instance = nullptr;
 
@@ -560,7 +574,6 @@ public:
                                        static_cast<uint32_t>(shape[1]),
                                        static_cast<uint32_t>(shape[0]) };
 
-            dr::eval(m_grid_texture.value()); // Make sure the SDF data is evaluated
             OptixSDFGridData data = { (uint32_t *) m_voxel_indices_ptr,
                                       resolution[0],
                                       resolution[1],
@@ -570,13 +583,13 @@ public:
                                       m_voxel_size.scalar()[2],
                                       m_grid_texture.tensor().array().data(),
                                       m_to_object.scalar() };
-            jit_memcpy(JitBackend::CUDA, m_optix_data_ptr, &data,
-                       sizeof(OptixSDFGridData));
+            jit_memcpy_async(JitBackend::CUDA, m_optix_data_ptr, &data,
+                             sizeof(OptixSDFGridData));
         }
     }
 
     void optix_build_input(OptixBuildInput &build_input) const override {
-        build_input.type = OPTIX_BUILD_INPUT_TYPE_CUSTOM_PRIMITIVES;
+        build_input.type                               = OPTIX_BUILD_INPUT_TYPE_CUSTOM_PRIMITIVES;
         build_input.customPrimitiveArray.aabbBuffers   = &m_bboxes_ptr;
         build_input.customPrimitiveArray.numPrimitives = m_filled_voxel_count;
         build_input.customPrimitiveArray.strideInBytes = 6 * sizeof(float);

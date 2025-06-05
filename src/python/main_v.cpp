@@ -120,6 +120,22 @@ using Caster = nb::object(*)(mitsuba::Object *);
 Caster cast_object = nullptr;
 
 NB_MODULE(MI_VARIANT_NAME, m) {
+    bool is_stub_gen = std::getenv("MI_STUB_GENERATION");
+
+    /* scoped */ {
+        // Before loading everything in and creating a lot of references to
+        // various objects, we ensure that this backend can be initialized
+        // without issues by creating a simple variable.
+        // If initialization fails, an exception will be raised, which the user
+        // can catch and handle if desired.
+        // Leaving initialization to fail later would lead to reference leaks.
+        // For stub generation, we **always** want the module to load
+        // successfully.
+        if (!is_stub_gen) {
+            MI_VARIANT_FLOAT(0);
+        }
+    }
+
     m.attr("__name__") = "mitsuba";
 
     // Create sub-modules
@@ -242,8 +258,9 @@ NB_MODULE(MI_VARIANT_NAME, m) {
     paths.append(nb::str(mi_py_dir));
     m.attr("__path__") = paths;
 
-
-    color_management_static_initialization(dr::is_cuda_v<Float>,
-                                           dr::is_llvm_v<Float>);
-    Scene::static_accel_initialization();
+    if (!is_stub_gen) {
+        color_management_static_initialization(dr::is_cuda_v<Float>,
+                                               dr::is_llvm_v<Float>);
+        Scene::static_accel_initialization();
+    }
 }
