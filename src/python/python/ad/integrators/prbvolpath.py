@@ -100,6 +100,7 @@ class PRBVolpathIntegrator(RBIntegrator):
                ray: mi.Ray3f,
                δL: Optional[mi.Spectrum],
                state_in: Optional[mi.Spectrum],
+               active: mi.Bool,
                **kwargs # Absorbs unused arguments
     ) -> Tuple[mi.Spectrum, mi.Bool, List[mi.Float], mi.Spectrum]:
         self.prepare_scene(scene)
